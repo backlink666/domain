@@ -16,7 +16,7 @@
 
 (function() {
     'use strict';
-
+    
     // 添加样式
     GM_addStyle(`
         #rdap-checker-panel {
@@ -98,7 +98,7 @@
             overflow-y: auto;
         }
     `);
-
+    
     // 创建UI面板
     function createPanel() {
         const panel = document.createElement('div');
@@ -106,23 +106,23 @@
         panel.innerHTML = `
             <span class="minimize-btn">_</span>
             <h3>RDAP域名信息查询工具</h3>
-
+            
             <div class="rdap-input">
                 <input type="text" id="domain-input" placeholder="输入要查询的域名" value="${getRootDomain(window.location.hostname)}">
                 <button id="query-btn">查询</button>
             </div>
-
+            
             <div id="server-selection" style="margin-bottom: 10px;">
                 <div><input type="radio" name="server" id="server-auto" value="auto" checked> <label for="server-auto">自动选择RDAP服务器</label></div>
                 <div><input type="radio" name="server" id="server-demo" value="demo"> <label for="server-demo">使用Demo服务器 (client.rdap.org)</label></div>
             </div>
-
+            
             <div id="result-panel" class="result-panel">
                 <div id="result-content">正在自动查询中...</div>
             </div>
         `;
         document.body.appendChild(panel);
-
+        
         // 添加最小化按钮事件
         panel.querySelector('.minimize-btn').addEventListener('click', function() {
             const content = panel.querySelectorAll('.rdap-input, #server-selection, #result-panel, h3');
@@ -131,30 +131,30 @@
             });
             this.textContent = this.textContent === '_' ? '+' : '_';
         });
-
+        
         // 添加查询按钮事件
         document.getElementById('query-btn').addEventListener('click', function() {
             performQuery();
         });
-
+        
         // 自动执行查询
         setTimeout(performQuery, 500);
     }
-
+    
     // 执行查询
     function performQuery() {
         const domain = document.getElementById('domain-input').value.trim();
         const serverType = document.querySelector('input[name="server"]:checked').value;
-
+        
         if (!domain) {
             alert('请输入域名');
             return;
         }
-
+        
         // 获取结果元素
         const resultContent = document.getElementById('result-content');
         resultContent.innerHTML = '<div class="result-item">查询中，请稍候...</div>';
-
+        
         if (serverType === 'demo') {
             // 使用demo服务器
             queryRdapDirect(domain, resultContent);
@@ -163,41 +163,58 @@
             queryRdapWithServerList(domain, resultContent);
         }
     }
-
+    
     // 获取根域名（去除www等常见子域名前缀）
     function getRootDomain(hostname) {
-        // 常见子域名前缀列表
-        const commonSubdomains = ['www', 'ww2', 'm', 'mobile', 'app', 'api'];
-
         try {
             // 分割域名
             const parts = hostname.split('.');
-
+            
             // 如果域名部分少于2段，直接返回
             if (parts.length < 2) {
                 return hostname;
             }
-
-            // 检查第一段是否为常见子域名前缀
-            if (commonSubdomains.includes(parts[0].toLowerCase())) {
-                // 去掉第一段，返回剩余部分
-                return parts.slice(1).join('.');
+            
+            // 处理特殊的复合TLD，如.co.uk, .com.cn等
+            const knownTLDs = [
+                'co.uk', 'co.jp', 'co.kr', 'co.nz', 'co.za', 'co.il', 'co.in',
+                'com.au', 'com.br', 'com.cn', 'com.mx', 'com.tw', 'com.hk', 'com.sg',
+                'org.uk', 'net.au', 'ac.uk', 'ac.jp', 'edu.au', 'gov.uk'
+            ];
+            
+            // 检查是否是已知的复合TLD
+            for (const tld of knownTLDs) {
+                const tldParts = tld.split('.');
+                if (tldParts.length === 2 && 
+                    parts.length >= 3 && 
+                    parts[parts.length - 2] === tldParts[0] && 
+                    parts[parts.length - 1] === tldParts[1]) {
+                    // 如果是复合TLD，返回最后三段
+                    return parts.slice(-3).join('.');
+                }
             }
-
-            // 否则返回原始域名
+            
+            // 对于标准顶级域名，返回最后两段
+            // 例如: blogs.socsd.org -> socsd.org, web.jike.com -> jike.com
+            if (parts.length >= 2) {
+                return parts.slice(-2).join('.');
+            }
+            
+            // 如果上述情况都不符合，返回原始域名
             return hostname;
         } catch (e) {
             // 出错时返回原始域名
+            console.error('解析域名错误:', e);
             return hostname;
         }
     }
-
+    
     // 使用Demo服务器直接查询
     function queryRdapDirect(domain, resultElement) {
         // 确保使用根域名
         domain = getRootDomain(domain);
         const rdapUrl = `https://client.rdap.org/domain/${domain}`;
-
+        
         GM_xmlhttpRequest({
             method: 'GET',
             url: rdapUrl,
@@ -209,12 +226,12 @@
             }
         });
     }
-
+    
     // 先获取RDAP服务器列表，然后选择合适的服务器查询
     function queryRdapWithServerList(domain, resultElement) {
         // 确保使用根域名
         domain = getRootDomain(domain);
-
+        
         // 获取IANA的RDAP服务器列表
         GM_xmlhttpRequest({
             method: 'GET',
@@ -223,32 +240,32 @@
                 try {
                     const data = JSON.parse(response.responseText);
                     const services = data.services || [];
-
+                    
                     // 查找适合当前域名的RDAP服务器
                     const tld = domain.split('.').pop();
                     let rdapServer = null;
-
+                    
                     // 遍历服务列表查找匹配的TLD
                     for (const service of services) {
                         const tlds = service[0];
                         const servers = service[1];
-
+                        
                         if (tlds.includes(tld) || tlds.includes('.' + tld)) {
                             rdapServer = servers[0];
                             break;
                         }
                     }
-
+                    
                     if (rdapServer) {
                         // 确保URL以/结尾
                         if (!rdapServer.endsWith('/')) {
                             rdapServer += '/';
                         }
-
+                        
                         const rdapUrl = `${rdapServer}domain/${domain}`;
-
+                        
                         resultElement.innerHTML = `<div class="result-item">找到RDAP服务器: ${rdapServer}<br>正在查询...</div>`;
-
+                        
                         // 使用找到的服务器查询
                         GM_xmlhttpRequest({
                             method: 'GET',
@@ -258,7 +275,7 @@
                             },
                             onerror: function(error) {
                                 resultElement.innerHTML += `<div class="result-item error">查询错误: ${error.statusText || '网络错误'}</div>`;
-
+                                
                                 // 如果自动选择服务器失败，回退到Demo服务器
                                 resultElement.innerHTML += `<div class="result-item">尝试使用Demo服务器...</div>`;
                                 queryRdapDirect(domain, resultElement);
@@ -282,7 +299,7 @@
             }
         });
     }
-
+    
     // 处理RDAP响应
     function processRdapResponse(response, resultElement) {
         try {
@@ -291,7 +308,7 @@
                 displayRdapData(data, resultElement);
             } else {
                 resultElement.innerHTML = `<div class="result-item error">查询失败: HTTP ${response.status} - ${response.statusText}</div>`;
-
+                
                 try {
                     // 尝试解析错误响应
                     const errorData = JSON.parse(response.responseText);
@@ -315,12 +332,12 @@
             }
         }
     }
-
+    
     // 显示RDAP数据
     function displayRdapData(data, resultElement) {
         // 清空结果区域
         resultElement.innerHTML = '';
-
+        
         // 基本信息
         let html = `
             <div class="result-item success">查询成功</div>
@@ -329,7 +346,7 @@
                 <div class="result-value">${data.ldhName || data.handle || '未知'}</div>
             </div>
         `;
-
+        
         // 状态信息
         if (data.status && data.status.length > 0) {
             html += `
@@ -339,14 +356,14 @@
                 </div>
             `;
         }
-
+        
         // 注册和到期日期
         if (data.events && data.events.length > 0) {
             // 查找注册和到期日期
             const registrationEvent = data.events.find(e => e.eventAction === 'registration');
             const expirationEvent = data.events.find(e => e.eventAction === 'expiration');
             const lastChangedEvent = data.events.find(e => e.eventAction === 'last changed');
-
+            
             if (registrationEvent) {
                 const regDate = new Date(registrationEvent.eventDate);
                 html += `
@@ -356,7 +373,7 @@
                     </div>
                 `;
             }
-
+            
             if (expirationEvent) {
                 const expDate = new Date(expirationEvent.eventDate);
                 html += `
@@ -366,7 +383,7 @@
                     </div>
                 `;
             }
-
+            
             if (lastChangedEvent) {
                 const lastChanged = new Date(lastChangedEvent.eventDate);
                 html += `
@@ -377,30 +394,30 @@
                 `;
             }
         }
-
+        
         // 实体信息（注册人/管理员等）
         if (data.entities && data.entities.length > 0) {
             html += `<div class="result-item result-label">实体信息:</div>`;
-
+            
             data.entities.forEach(entity => {
                 const roles = entity.roles ? entity.roles.join(', ') : '未知角色';
-
+                
                 html += `
                     <div class="result-item" style="margin-left: 10px;">
                         <div class="result-label">${roles}:</div>
                         <div class="result-value">${entity.handle || ''}</div>
                     </div>
                 `;
-
+                
                 // 显示实体名称等信息
                 if (entity.vcardArray && entity.vcardArray[1]) {
                     const vcardEntries = entity.vcardArray[1];
-
+                    
                     // 尝试找到姓名、组织和地址
                     const fnEntry = vcardEntries.find(e => e[0] === 'fn');
                     const orgEntry = vcardEntries.find(e => e[0] === 'org');
                     const emailEntries = vcardEntries.filter(e => e[0] === 'email');
-
+                    
                     if (fnEntry) {
                         html += `
                             <div class="result-item" style="margin-left: 20px;">
@@ -408,7 +425,7 @@
                             </div>
                         `;
                     }
-
+                    
                     if (orgEntry) {
                         html += `
                             <div class="result-item" style="margin-left: 20px;">
@@ -416,7 +433,7 @@
                             </div>
                         `;
                     }
-
+                    
                     if (emailEntries.length > 0) {
                         emailEntries.forEach(email => {
                             html += `
@@ -429,7 +446,7 @@
                 }
             });
         }
-
+        
         // 命名服务器信息
         if (data.nameservers && data.nameservers.length > 0) {
             html += `
@@ -439,7 +456,7 @@
                 </div>
             `;
         }
-
+        
         // 注册商信息
         if (data.entities) {
             const registrar = data.entities.find(e => e.roles && e.roles.includes('registrar'));
@@ -452,7 +469,7 @@
                 `;
             }
         }
-
+        
         // 提供查看原始数据的选项
         html += `
             <div class="result-item">
@@ -462,9 +479,9 @@
                 <pre id="raw-data" style="display: none;">${JSON.stringify(data, null, 2)}</pre>
             </div>
         `;
-
+        
         resultElement.innerHTML = html;
-
+        
         // 添加原始数据切换事件
         document.getElementById('toggle-raw-data').addEventListener('click', function(e) {
             e.preventDefault();
@@ -473,12 +490,12 @@
             this.textContent = rawData.style.display === 'none' ? '查看原始JSON数据' : '隐藏原始JSON数据';
         });
     }
-
+    
     // 初始化
     function init() {
         createPanel();
     }
-
+    
     // 等待页面加载完成
     window.addEventListener('load', init);
-})();
+})(); 
